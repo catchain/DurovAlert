@@ -159,7 +159,7 @@ function connectStreaming() {
 
   console.log(`[${ts()}] Connecting to streaming API...`);
 
-  ws = new WebSocket(WS_URL, { headers: { 'X-API-Key': API_KEY } });
+  ws = new WebSocket(`${WS_URL}?api_key=${API_KEY}`);
 
   ws.on('open', () => {
     console.log(`[${ts()}] Stream connected`);
