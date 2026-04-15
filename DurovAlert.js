@@ -17,11 +17,16 @@ const API_KEY      = process.env.TONCENTER_API_KEY;
 const API_URL      = process.env.TON_API_URL || 'https://toncenter.com/api/v3/actions';
 const WS_URL       = 'wss://toncenter.com/api/streaming/v2/ws';
 
+const POLL_INTERVAL    = 60_000;
+const POLL_INTERVAL_FB = 30_000;
+
 let tonscanAddressbook = {};
 let ws = null;
 let reconnectAttempts  = 0;
 let reconnectTimer     = null;
 let pingTimer          = null;
+let pollTimer          = null;
+let streaming          = false;
 
 // ── Rate Limiter (for REST requests) ──────────────────────
 const rateLimiter = {
@@ -115,7 +120,7 @@ async function processAction(action, fullResponse) {
   storage.markTxProcessed(id);
 }
 
-// ── Polling (initial catch-up & reconnect gap fill) ───────
+// ── Polling ───────────────────────────────────────────────
 async function pollTransactions() {
   try {
     await rateLimiter.throttle();
@@ -153,6 +158,18 @@ async function pollTransactions() {
   }
 }
 
+function startPolling(interval) {
+  stopPolling();
+  pollTimer = setInterval(async () => {
+    try { await pollTransactions(); }
+    catch (e) { console.error(`Poll tick error: ${e.message}`); }
+  }, interval);
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
 // ── WebSocket Streaming ───────────────────────────────────
 function connectStreaming() {
   if (ws) { try { ws.terminate(); } catch {} }
@@ -164,6 +181,11 @@ function connectStreaming() {
   ws.on('open', () => {
     console.log(`[${ts()}] Stream connected`);
     reconnectAttempts = 0;
+    streaming = true;
+
+    stopPolling();
+    startPolling(POLL_INTERVAL);
+    console.log(`[${ts()}] Polling set to ${POLL_INTERVAL / 1000}s (backup)`);
 
     ws.send(JSON.stringify({
       id:            'durov-actions',
@@ -219,6 +241,7 @@ function connectStreaming() {
   ws.on('close', (code, reason) => {
     console.log(`[${ts()}] Stream closed: ${code} ${reason || ''}`);
     clearInterval(pingTimer);
+    streaming = false;
     scheduleReconnect();
   });
 
@@ -230,16 +253,18 @@ function connectStreaming() {
 function scheduleReconnect() {
   if (reconnectTimer) clearTimeout(reconnectTimer);
 
+  if (!streaming) {
+    startPolling(POLL_INTERVAL_FB);
+    console.log(`[${ts()}] Streaming down → polling every ${POLL_INTERVAL_FB / 1000}s`);
+  }
+
   const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 60_000);
   reconnectAttempts++;
   console.log(`Reconnecting in ${delay / 1000}s (attempt #${reconnectAttempts})`);
 
   reconnectTimer = setTimeout(async () => {
-    try {
-      await pollTransactions();
-    } catch (e) {
-      console.error(`Gap-fill poll failed: ${e.message}`);
-    }
+    try { await pollTransactions(); }
+    catch (e) { console.error(`Gap-fill poll failed: ${e.message}`); }
     connectStreaming();
   }, delay);
 }
@@ -257,6 +282,10 @@ async function startBot() {
   }
 
   await pollTransactions();
+
+  startPolling(POLL_INTERVAL_FB);
+  console.log(`[${ts()}] Polling started (${POLL_INTERVAL_FB / 1000}s)`);
+
   connectStreaming();
 
   setInterval(async () => {
@@ -264,7 +293,7 @@ async function startBot() {
     catch (e) { console.error(`Addressbook refresh: ${e.message}`); }
   }, 5 * 60_000);
 
-  console.log(`[${ts()}] DurovAlert running (streaming + poll fallback)`);
+  console.log(`[${ts()}] DurovAlert running`);
 }
 
 startBot();
