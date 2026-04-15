@@ -171,21 +171,24 @@ function stopPolling() {
 }
 
 // ── WebSocket Streaming ───────────────────────────────────
+let wsLoggedOnce = false;
+
 function connectStreaming() {
   if (ws) { try { ws.terminate(); } catch {} }
-
-  console.log(`[${ts()}] Connecting to streaming API...`);
 
   ws = new WebSocket(`${WS_URL}?api_key=${API_KEY}`);
 
   ws.on('open', () => {
-    console.log(`[${ts()}] Stream connected`);
     reconnectAttempts = 0;
     streaming = true;
 
     stopPolling();
     startPolling(POLL_INTERVAL);
-    console.log(`[${ts()}] Polling set to ${POLL_INTERVAL / 1000}s (backup)`);
+
+    if (!wsLoggedOnce) {
+      console.log(`[${ts()}] Stream connected, polling ${POLL_INTERVAL / 1000}s (backup)`);
+      wsLoggedOnce = true;
+    }
 
     ws.send(JSON.stringify({
       id:            'durov-actions',
@@ -199,19 +202,13 @@ function connectStreaming() {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ id: `p-${Date.now()}`, method: 'ping' }));
       }
-    }, 30_000);
+    }, 15_000);
   });
 
   ws.on('message', async (raw) => {
     try {
       const event = JSON.parse(raw.toString());
-
-      if (event.status) {
-        if (event.status !== 'pong') {
-          console.log(`WS ← ${JSON.stringify(event)}`);
-        }
-        return;
-      }
+      if (event.status) return;
 
       if (event.type === 'actions' && Array.isArray(event.actions)) {
         console.log(`[${ts()}] Stream: ${event.actions.length} action(s) [${event.finality}]`);
@@ -238,33 +235,28 @@ function connectStreaming() {
     }
   });
 
-  ws.on('close', (code, reason) => {
-    console.log(`[${ts()}] Stream closed: ${code} ${reason || ''}`);
+  ws.on('close', () => {
     clearInterval(pingTimer);
     streaming = false;
     scheduleReconnect();
   });
 
-  ws.on('error', (error) => {
-    console.error(`[${ts()}] WS error: ${error.message}`);
-  });
+  ws.on('error', () => {});
 }
 
 function scheduleReconnect() {
   if (reconnectTimer) clearTimeout(reconnectTimer);
 
-  if (!streaming) {
+  if (!streaming && !pollTimer) {
     startPolling(POLL_INTERVAL_FB);
-    console.log(`[${ts()}] Streaming down → polling every ${POLL_INTERVAL_FB / 1000}s`);
+    console.log(`[${ts()}] Streaming unavailable, polling every ${POLL_INTERVAL_FB / 1000}s`);
   }
 
   const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 60_000);
   reconnectAttempts++;
-  console.log(`Reconnecting in ${delay / 1000}s (attempt #${reconnectAttempts})`);
 
   reconnectTimer = setTimeout(async () => {
-    try { await pollTransactions(); }
-    catch (e) { console.error(`Gap-fill poll failed: ${e.message}`); }
+    try { await pollTransactions(); } catch {}
     connectStreaming();
   }, delay);
 }
