@@ -1,0 +1,30 @@
+{
+  "name": "ton-monitoring-bot",
+  "version": "1.0.0",
+  "description": "A bot that monitors Pavel Durov's TON wallet for outgoing transactions",
+  "main": "index.js",
+  "scripts": {
+    "start": "node DurovAlert.js",
+    "dev": "node DurovAlert.js",
+    "test": "jest",
+    "emulate": "node emulate.js"
+  },
+  "keywords": [
+    "ton",
+    "telegram",
+    "bot",
+    "monitoring"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.6.2",
+    "dotenv": "^16.4.7",
+    "telegraf": "^4.15.0",
+    "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "jest": "^30.3.0",
+    "nodemon": "^3.1.10"
+  }
+}

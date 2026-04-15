@@ -1,0 +1,4 @@
+node_modules/
+.env
+transactions.json
+_real_tx_samples.json
