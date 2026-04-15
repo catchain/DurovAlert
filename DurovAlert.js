@@ -191,16 +191,18 @@ function connectStreaming() {
     }
 
     ws.send(JSON.stringify({
-      id:            'durov-actions',
-      method:        'subscribe',
-      addresses:     [DUROV_WALLET],
-      types:         ['actions'],
-      min_finality:  'confirmed',
+      operation:             'subscribe',
+      id:                    'durov-actions',
+      addresses:             [DUROV_WALLET],
+      types:                 ['actions'],
+      min_finality:          'confirmed',
+      include_address_book:  true,
+      include_metadata:      true,
     }));
 
     pingTimer = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ id: `p-${Date.now()}`, method: 'ping' }));
+        ws.send(JSON.stringify({ operation: 'ping', id: `p-${Date.now()}` }));
       }
     }, 15_000);
   });
