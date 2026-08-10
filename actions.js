@@ -16,7 +16,7 @@ const {
 const T = {
 
   ton_transfer: {
-    sent:              '💸 <a href="{txLink}">Sent</a> <b>{amount} TON</b> to <a href="{address}">{recipient}</a>',
+    sent:              '💸 <a href="{txLink}">Sent</a> <b>{amount} GRAM</b> to <a href="{address}">{recipient}</a>',
     encrypted_comment: '📝 <b>Encrypted</b>',
     comment:           '📝 {comment}',
   },
@@ -41,8 +41,8 @@ const T = {
 
   nft_transfer: {
     sent:     '🖼 <a href="{txLink}">Sent</a> NFT <a href="{nftLink}"><b>{nftName}</b></a> to <a href="{address}">{recipient}</a>',
-    purchase: '🖼 <a href="{txLink}">Buy</a> NFT <a href="{nftLink}"><b>{nftName}</b></a> for <b>{price} TON</b>',
-    sell:     '🖼 <a href="{txLink}">Sell</a> NFT <a href="{nftLink}"><b>{nftName}</b></a> for <b>{price} TON</b>',
+    purchase: '🖼 <a href="{txLink}">Buy</a> NFT <a href="{nftLink}"><b>{nftName}</b></a> for <b>{price} GRAM</b>',
+    sell:     '🖼 <a href="{txLink}">Sell</a> NFT <a href="{nftLink}"><b>{nftName}</b></a> for <b>{price} GRAM</b>',
   },
 
   nft_mint: {
@@ -50,7 +50,7 @@ const T = {
   },
 
   auction_bid: {
-    bid: '💎 <a href="{txLink}">Bid</a> <b>{amount} TON</b> for <a href="{nftLink}"><b>{nftName}</b></a>',
+    bid: '💎 <a href="{txLink}">Bid</a> <b>{amount} GRAM</b> for <a href="{nftLink}"><b>{nftName}</b></a>',
   },
 
   change_dns: {
@@ -66,11 +66,11 @@ const T = {
   },
 
   stake_deposit: {
-    deposit: '📥 <a href="{txLink}">Stake</a> <b>{amount} TON</b> {provider}',
+    deposit: '📥 <a href="{txLink}">Stake</a> <b>{amount} GRAM</b> {provider}',
   },
 
   stake_withdrawal: {
-    withdrawal: '📤 <a href="{txLink}">Unstake</a> <b>{amount} TON</b> {provider}',
+    withdrawal: '📤 <a href="{txLink}">Unstake</a> <b>{amount} GRAM</b> {provider}',
   },
 
   dex_deposit_liquidity: {
@@ -224,7 +224,7 @@ const handlers = {
 
     if (d.asset_in === null) {
       inAmount  = formatTonAmount(d.dex_incoming_transfer?.amount || '0');
-      inSymbol  = 'TON';
+      inSymbol  = 'GRAM';
     } else {
       const t = ctx.tokenInfo(d.asset_in);
       inAmount  = ctx.tokenAmount(d.asset_in, d.dex_incoming_transfer?.amount || '0');
@@ -233,7 +233,7 @@ const handlers = {
 
     if (d.asset_out === null) {
       outAmount = formatTonAmount(d.dex_outgoing_transfer?.amount || '0');
-      outSymbol = 'TON';
+      outSymbol = 'GRAM';
     } else {
       const t = ctx.tokenInfo(d.asset_out);
       outAmount = ctx.tokenAmount(d.asset_out, d.dex_outgoing_transfer?.amount || '0');
@@ -416,7 +416,7 @@ function parseDexPair(d, ctx) {
   const raw1 = d.amount_2 || d.dex_outgoing_transfer?.amount || '0';
 
   if (a0 === null) {
-    amount0 = formatTonAmount(raw0); symbol0 = 'TON';
+    amount0 = formatTonAmount(raw0); symbol0 = 'GRAM';
   } else {
     const t = ctx.tokenInfo(a0);
     amount0 = ctx.tokenAmount(a0, raw0);
@@ -424,7 +424,7 @@ function parseDexPair(d, ctx) {
   }
 
   if (a1 === null) {
-    amount1 = formatTonAmount(raw1); symbol1 = 'TON';
+    amount1 = formatTonAmount(raw1); symbol1 = 'GRAM';
   } else {
     const t = ctx.tokenInfo(a1);
     amount1 = ctx.tokenAmount(a1, raw1);
