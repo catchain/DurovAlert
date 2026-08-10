@@ -27,6 +27,7 @@ let reconnectTimer     = null;
 let pingTimer          = null;
 let pollTimer          = null;
 let streaming          = false;
+let pollingInFlight    = false;
 
 // ── Rate Limiter (for REST requests) ──────────────────────
 const rateLimiter = {
@@ -49,18 +50,82 @@ async function getNftInfo(nftAddress) {
       params: { address: nftAddress },
       headers: { 'X-API-Key': API_KEY },
     });
-    if (data?.metadata?.[nftAddress]?.is_indexed) {
-      const ti = data.metadata[nftAddress].token_info;
-      if (ti?.[0]) {
-        const result = { name: ti[0].name || 'Item', image: ti[0].image || null };
-        nftCache[nftAddress] = result;
-        return result;
-      }
+    const meta = data?.metadata || {};
+    // API may key metadata by raw or user-friendly form
+    const entry = meta[nftAddress]
+      || Object.values(meta).find(m => m?.token_info?.[0]);
+    if (entry?.token_info?.[0]) {
+      const ti = entry.token_info[0];
+      const result = { name: ti.name || 'Item', image: ti.image || null };
+      nftCache[nftAddress] = result;
+      return result;
     }
   } catch (e) {
     console.error(`NFT info error: ${e.message}`);
   }
   return { name: 'Item', image: null };
+}
+
+// Collect addresses from action details that need metadata / address book
+function collectActionAddresses(action) {
+  const d = action?.details || {};
+  const keys = [
+    'asset', 'asset_in', 'asset_out', 'asset_1', 'asset_2',
+    'nft_item', 'destination', 'receiver', 'new_owner', 'old_owner',
+    'source', 'sender', 'pool', 'bidder', 'stake_holder', 'owner',
+  ];
+  const addrs = new Set();
+  for (const k of keys) {
+    if (typeof d[k] === 'string' && d[k]) addrs.add(d[k]);
+  }
+  return [...addrs];
+}
+
+async function fetchMetadataAndBook(addresses) {
+  if (!addresses.length) return { metadata: {}, address_book: {} };
+
+  const headers = { 'X-API-Key': API_KEY };
+  // Toncenter expects repeated address= params (explode), not address[]=
+  const qs = addresses.map(a => `address=${encodeURIComponent(a)}`).join('&');
+
+  try {
+    await rateLimiter.throttle();
+    const [metaRes, bookRes] = await Promise.all([
+      axios.get(`https://toncenter.com/api/v3/metadata?${qs}`, { headers }).catch(() => null),
+      axios.get(`https://toncenter.com/api/v3/addressBook?${qs}`, { headers }).catch(() => null),
+    ]);
+    return {
+      metadata:     metaRes?.data || {},
+      address_book: bookRes?.data || {},
+    };
+  } catch (e) {
+    console.error(`Metadata enrich error: ${e.message}`);
+    return { metadata: {}, address_book: {} };
+  }
+}
+
+async function enrichResponse(actions, fullResponse) {
+  const metadata = { ...(fullResponse.metadata || {}) };
+  const addressBook = { ...(fullResponse.address_book || {}) };
+
+  const needed = new Set();
+  for (const action of actions) {
+    for (const addr of collectActionAddresses(action)) {
+      const hasMeta = metadata[addr]?.is_indexed || metadata[addr]?.token_info;
+      const hasBook = addressBook[addr];
+      if (!hasMeta || !hasBook) needed.add(addr);
+    }
+  }
+
+  if (!needed.size) {
+    return { metadata, address_book: addressBook };
+  }
+
+  const extra = await fetchMetadataAndBook([...needed]);
+  return {
+    metadata:     { ...metadata, ...extra.metadata },
+    address_book: { ...addressBook, ...extra.address_book },
+  };
 }
 
 // ── Telegram Sender ───────────────────────────────────────
@@ -88,7 +153,9 @@ async function sendMessage(text) {
 // ── Process One Action ────────────────────────────────────
 async function processAction(action, fullResponse) {
   const id = action.trace_id;
+  // Claim immediately to close the WS/poll race window before format+send
   if (!id || storage.hasProcessedTx(id)) return;
+  storage.markTxProcessed(id);
 
   try {
     const message = await formatAction(action, fullResponse, {
@@ -116,12 +183,13 @@ async function processAction(action, fullResponse) {
   } catch (error) {
     console.error(`Action error (${id.substring(0, 10)}): ${error.message}`);
   }
-
-  storage.markTxProcessed(id);
 }
 
 // ── Polling ───────────────────────────────────────────────
 async function pollTransactions() {
+  if (pollingInFlight) return;
+  pollingInFlight = true;
+
   try {
     await rateLimiter.throttle();
 
@@ -140,10 +208,10 @@ async function pollTransactions() {
     if (!fresh.length) return;
     console.log(`Poll: ${fresh.length} new action(s)`);
 
-    const fullResponse = {
+    const fullResponse = await enrichResponse(fresh, {
       metadata:     data.metadata     || {},
       address_book: data.address_book || {},
-    };
+    });
 
     for (const action of fresh) {
       await processAction(action, fullResponse);
@@ -155,6 +223,8 @@ async function pollTransactions() {
     }
   } catch (error) {
     console.error(`Poll error: ${error.message}`);
+  } finally {
+    pollingInFlight = false;
   }
 }
 
@@ -182,6 +252,7 @@ function connectStreaming() {
     reconnectAttempts = 0;
     streaming = true;
 
+    // Slow backup poll while streaming — early claim prevents duplicates
     stopPolling();
     startPolling(POLL_INTERVAL);
 
@@ -215,10 +286,10 @@ function connectStreaming() {
       if (event.type === 'actions' && Array.isArray(event.actions)) {
         console.log(`[${ts()}] Stream: ${event.actions.length} action(s) [${event.finality}]`);
 
-        const fullResponse = {
+        const fullResponse = await enrichResponse(event.actions, {
           metadata:     event.metadata     || {},
           address_book: event.address_book || {},
-        };
+        });
 
         for (const action of event.actions) {
           await processAction(action, fullResponse);

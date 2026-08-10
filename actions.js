@@ -92,7 +92,7 @@ const T = {
 
 function getTokenInfo(asset, metadata) {
   let name = 'Jetton', symbol = '', decimals = 9;
-  if (asset && metadata[asset] && metadata[asset].is_indexed) {
+  if (asset && metadata[asset]) {
     const info = metadata[asset].token_info;
     if (info && info[0]) {
       name   = info[0].name || name;
@@ -135,10 +135,8 @@ function createContext(tx, fullResponse, config) {
     const uf = friendly(addr);
     if (tonscanAddressbook[uf]) return tonscanAddressbook[uf].name;
     if (addressBook[addr]?.domain)  return addressBook[addr].domain;
-    if (metadata[addr]?.is_indexed) {
-      const ti = metadata[addr].token_info;
-      if (ti?.[0]?.name) return shortenAddress(ti[0].name);
-    }
+    const ti = metadata[addr]?.token_info;
+    if (ti?.[0]?.name) return shortenAddress(ti[0].name);
     return shortenAddress(uf);
   };
 
@@ -282,8 +280,16 @@ const handlers = {
 
   // ── NFT Mint ────────────────────────────────────────
   async nft_mint(d, ctx) {
-    const info = ctx.metadata[d.nft_item] || {};
-    const nftName = info?.token_info?.[0]?.name || 'Item';
+    let nftName = 'Item';
+    const ti = ctx.metadata[d.nft_item]?.token_info;
+    if (ti?.[0]?.name) {
+      nftName = ti[0].name;
+    } else {
+      try {
+        const info = await ctx.getNftInfo(d.nft_item);
+        nftName = info.name || 'Item';
+      } catch {}
+    }
 
     return formatTemplate(T.nft_mint.mint, {
       txLink:  ctx.txLink,
@@ -297,13 +303,12 @@ const handlers = {
     if (d.bidder !== ctx.wallet) return null;
 
     let nftName = 'Item';
-    if (ctx.metadata[d.nft_item]?.is_indexed) {
-      const ti = ctx.metadata[d.nft_item].token_info;
-      if (ti?.[0]?.name) nftName = ti[0].name;
+    const ti = ctx.metadata[d.nft_item]?.token_info;
+    if (ti?.[0]?.name) {
+      nftName = ti[0].name;
     } else {
       try {
-        const uf = ctx.friendly(d.nft_item);
-        const info = await ctx.getNftInfo(uf);
+        const info = await ctx.getNftInfo(d.nft_item);
         if (info.name) nftName = info.name;
       } catch {}
     }
