@@ -374,6 +374,10 @@ function ts() { return new Date().toISOString(); }
 
 async function startBot() {
   console.log(`[${ts()}] DurovAlert starting...`);
+  for (const wallet of DUROV_WALLETS) {
+    const label = WALLET_LABELS[wallet.toUpperCase()] || 'no label';
+    console.log(`[${ts()}] Tracking ${wallet} (${label})`);
+  }
 
   try {
     tonscanAddressbook = await getTonscanAddressbook();
