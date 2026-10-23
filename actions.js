@@ -127,11 +127,17 @@ function appendComment(message, comment, isEncrypted, tpl) {
 function createContext(tx, fullResponse, config) {
   const metadata    = fullResponse.metadata || {};
   const addressBook = fullResponse.address_book || {};
-  const { tonscanAddressbook, getNftInfo, durovWallet } = config;
+  const { tonscanAddressbook, getNftInfo, durovWallets, walletLabels = {} } = config;
+  const own = new Set(durovWallets.map(w => w.toUpperCase()));
+  const labels = Object.fromEntries(
+    Object.entries(walletLabels).map(([addr, name]) => [addr.toUpperCase(), name]),
+  );
 
   const friendly = (addr) => addressBook[addr]?.user_friendly || addr;
 
   const formatAddr = (addr) => {
+    // Own labels win over address books
+    if (addr && labels[addr.toUpperCase()]) return labels[addr.toUpperCase()];
     const uf = friendly(addr);
     if (tonscanAddressbook[uf]) return tonscanAddressbook[uf].name;
     if (addressBook[addr]?.domain)  return addressBook[addr].domain;
@@ -142,7 +148,7 @@ function createContext(tx, fullResponse, config) {
 
   return {
     txLink:  `https://tonscan.org/tx/${encodeURIComponent(tx.trace_id)}`,
-    wallet:  durovWallet,
+    isOwn:   (addr) => !!addr && own.has(addr.toUpperCase()),
     metadata,
     addressBook,
     getNftInfo,
@@ -164,7 +170,7 @@ const handlers = {
 
   // ── TON ──────────────────────────────────────────────
   async ton_transfer(d, ctx) {
-    if (d.source !== ctx.wallet) return null;
+    if (!ctx.isOwn(d.source)) return null;
     if (!d.value && d.value !== '0') return null;
 
     let msg = formatTemplate(T.ton_transfer.sent, {
@@ -178,7 +184,7 @@ const handlers = {
 
   // ── Jetton Transfer ─────────────────────────────────
   async jetton_transfer(d, ctx) {
-    if (d.sender !== ctx.wallet) return null;
+    if (!ctx.isOwn(d.sender)) return null;
     const { symbol } = ctx.tokenInfo(d.asset);
 
     let msg = formatTemplate(T.jetton_transfer.sent, {
@@ -204,7 +210,7 @@ const handlers = {
   // ── Jetton Burn ─────────────────────────────────────
   async jetton_burn(d, ctx) {
     const owner = d.owner || d.sender;
-    if (owner && owner !== ctx.wallet) return null;
+    if (owner && !ctx.isOwn(owner)) return null;
     const { symbol } = ctx.tokenInfo(d.asset);
 
     return formatTemplate(T.jetton_burn.burn, {
@@ -216,7 +222,7 @@ const handlers = {
 
   // ── Jetton Swap ─────────────────────────────────────
   async jetton_swap(d, ctx) {
-    if (d.sender !== ctx.wallet) return null;
+    if (!ctx.isOwn(d.sender)) return null;
 
     let inAmount = 0, inSymbol = '', outAmount = 0, outSymbol = '';
 
@@ -250,7 +256,7 @@ const handlers = {
 
   // ── NFT Transfer ────────────────────────────────────
   async nft_transfer(d, ctx) {
-    if (d.old_owner !== ctx.wallet && !d.is_purchase) return null;
+    if (!ctx.isOwn(d.old_owner) && !d.is_purchase) return null;
 
     let nftName = 'Item';
     try {
@@ -268,7 +274,7 @@ const handlers = {
 
     let template = T.nft_transfer.sent;
     if (d.is_purchase) {
-      template = d.new_owner === ctx.wallet
+      template = ctx.isOwn(d.new_owner)
         ? T.nft_transfer.purchase
         : T.nft_transfer.sell;
       data.price = formatTonAmount(d.price);
@@ -300,7 +306,7 @@ const handlers = {
 
   // ── Auction Bid ─────────────────────────────────────
   async auction_bid(d, ctx) {
-    if (d.bidder !== ctx.wallet) return null;
+    if (!ctx.isOwn(d.bidder)) return null;
 
     let nftName = 'Item';
     const ti = ctx.metadata[d.nft_item]?.token_info;
@@ -323,7 +329,7 @@ const handlers = {
 
   // ── DNS ─────────────────────────────────────────────
   async change_dns(d, ctx) {
-    if (d.source !== ctx.wallet) return null;
+    if (!ctx.isOwn(d.source)) return null;
     return formatTemplate(T.change_dns.change, {
       txLink:  ctx.txLink,
       domain:  escapeMarkdown(extractDomain(ctx.metadata, d.asset)),
@@ -332,7 +338,7 @@ const handlers = {
   },
 
   async renew_dns(d, ctx) {
-    if (d.source !== ctx.wallet) return null;
+    if (!ctx.isOwn(d.source)) return null;
     return formatTemplate(T.renew_dns.renew, {
       txLink:  ctx.txLink,
       domain:  escapeMarkdown(extractDomain(ctx.metadata, d.asset)),
@@ -341,7 +347,7 @@ const handlers = {
   },
 
   async delete_dns(d, ctx) {
-    if (d.source !== ctx.wallet) return null;
+    if (!ctx.isOwn(d.source)) return null;
     return formatTemplate(T.delete_dns.delete, {
       txLink:  ctx.txLink,
       domain:  escapeMarkdown(extractDomain(ctx.metadata, d.asset)),
@@ -351,7 +357,7 @@ const handlers = {
 
   // ── Staking ─────────────────────────────────────────
   async stake_deposit(d, ctx) {
-    if (d.stake_holder !== ctx.wallet) return null;
+    if (!ctx.isOwn(d.stake_holder)) return null;
     const poolLink = `https://tonscan.org/address/${encodeURIComponent(ctx.friendly(d.pool))}`;
     const provider = (d.provider && d.pool)
       ? `via <a href="${poolLink}">${escapeMarkdown(d.provider)}</a>`
@@ -365,7 +371,7 @@ const handlers = {
   },
 
   async stake_withdrawal(d, ctx) {
-    if (d.stake_holder !== ctx.wallet) return null;
+    if (!ctx.isOwn(d.stake_holder)) return null;
     const poolLink = `https://tonscan.org/address/${encodeURIComponent(ctx.friendly(d.pool))}`;
     const provider = (d.provider && d.pool)
       ? `via <a href="${poolLink}">${escapeMarkdown(d.provider)}</a>`
@@ -381,7 +387,7 @@ const handlers = {
   // ── DEX Liquidity ───────────────────────────────────
   async dex_deposit_liquidity(d, ctx) {
     const sender = d.sender || d.owner;
-    if (sender && sender !== ctx.wallet) return null;
+    if (sender && !ctx.isOwn(sender)) return null;
 
     const pair = parseDexPair(d, ctx);
     return formatTemplate(T.dex_deposit_liquidity.deposit, {
@@ -396,7 +402,7 @@ const handlers = {
 
   async dex_withdraw_liquidity(d, ctx) {
     const sender = d.sender || d.owner;
-    if (sender && sender !== ctx.wallet) return null;
+    if (sender && !ctx.isOwn(sender)) return null;
 
     const pair = parseDexPair(d, ctx);
     return formatTemplate(T.dex_withdraw_liquidity.withdraw, {

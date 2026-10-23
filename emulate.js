@@ -13,7 +13,7 @@ const { getTonscanAddressbook } = require('./utils');
 
 const bot        = new Telegraf(process.env.BOT_TOKEN);
 const CHANNEL_ID = process.env.CHANNEL_ID;
-const WALLET     = process.env.DUROV_WALLET;
+const WALLET     = process.env.DUROV_WALLET.split(',')[0].trim();
 const API_KEY    = process.env.TONCENTER_API_KEY;
 
 async function send(label, msg) {
@@ -66,7 +66,7 @@ async function main() {
     return { name: 'Item', image: null };
   }
 
-  const config = { durovWallet: WALLET, tonscanAddressbook, getNftInfo };
+  const config = { durovWallets: [WALLET], tonscanAddressbook, getNftInfo };
 
   const format = async (action, resp) => {
     const result = await formatAction(action, resp, config);

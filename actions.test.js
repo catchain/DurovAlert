@@ -5,6 +5,7 @@ const WALLET = '0:D8CD999FB2B1B384E6CA254C3883375E23111A8B78C015B886286C31BF11E2
 const OTHER  = '0:1111111111111111111111111111111111111111111111111111111111111111';
 const ASSET  = '0:B113A994B5024A16719F69139328EB759596C38A25F59028B146FECDC3621DFE';
 const NFT    = '0:E3A797299DC6163CF2000000000000000000000000000000000000000000ABCD';
+const WALLET2 = '0:455024810CAEF5D106159C1A1C7DECC336F3BBC7198BAC97409CB13CC1C88C17';
 const POOL   = '0:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 const mockMeta = {
@@ -27,7 +28,7 @@ const mockBook = {
 };
 
 const baseConfig = {
-  durovWallet: WALLET,
+  durovWallets: [WALLET, WALLET2],
   tonscanAddressbook: {},
   getNftInfo: async () => ({ name: 'Test NFT #1', image: null }),
 };
@@ -70,7 +71,7 @@ describe('Outgoing filter — only Durov-initiated actions pass', () => {
     });
     const msg = await formatAction(action, resp(), baseConfig);
     expect(msg).toBeTruthy();
-    expect(msg).toContain('1 TON');
+    expect(msg).toContain('1 GRAM');
   });
 
   test('ton_transfer: incoming is skipped', async () => {
@@ -111,7 +112,7 @@ describe('Outgoing filter — only Durov-initiated actions pass', () => {
     const msg = await formatAction(action, resp(), baseConfig);
     expect(msg).toBeTruthy();
     expect(msg).toContain('StonFi');
-    expect(msg).toContain('TON');
+    expect(msg).toContain('GRAM');
     expect(msg).toContain('USDT');
   });
 
@@ -154,7 +155,7 @@ describe('Outgoing filter — only Durov-initiated actions pass', () => {
     const msg = await formatAction(action, resp(), baseConfig);
     expect(msg).toBeTruthy();
     expect(msg).toContain('Buy');
-    expect(msg).toContain('5 TON');
+    expect(msg).toContain('5 GRAM');
   });
 
   test('nft_transfer: sale by Durov passes', async () => {
@@ -166,7 +167,7 @@ describe('Outgoing filter — only Durov-initiated actions pass', () => {
     const msg = await formatAction(action, resp(), baseConfig);
     expect(msg).toBeTruthy();
     expect(msg).toContain('Sell');
-    expect(msg).toContain('10 TON');
+    expect(msg).toContain('10 GRAM');
   });
 
   test('auction_bid: Durov bids passes', async () => {
@@ -176,7 +177,7 @@ describe('Outgoing filter — only Durov-initiated actions pass', () => {
     const msg = await formatAction(action, resp(), baseConfig);
     expect(msg).toBeTruthy();
     expect(msg).toContain('Bid');
-    expect(msg).toContain('7 000 TON');
+    expect(msg).toContain('7 000 GRAM');
   });
 
   test('auction_bid: other bidder is skipped', async () => {
@@ -225,7 +226,7 @@ describe('Outgoing filter — only Durov-initiated actions pass', () => {
     const msg = await formatAction(action, resp(), baseConfig);
     expect(msg).toBeTruthy();
     expect(msg).toContain('Stake');
-    expect(msg).toContain('50 000 TON');
+    expect(msg).toContain('50 000 GRAM');
     expect(msg).toContain('Tonstakers');
   });
 
@@ -274,7 +275,7 @@ describe('Outgoing filter — only Durov-initiated actions pass', () => {
     const msg = await formatAction(action, resp(), baseConfig);
     expect(msg).toBeTruthy();
     expect(msg).toContain('Add liquidity');
-    expect(msg).toContain('10 TON');
+    expect(msg).toContain('10 GRAM');
     expect(msg).toContain('35 USDT');
     expect(msg).toContain('StonFi');
   });
@@ -376,7 +377,7 @@ describe('Token amount formatting', () => {
       value: '500000000', comment: null, encrypted: false,
     });
     const msg = await formatAction(action, resp(), baseConfig);
-    expect(msg).toContain('0.5 TON');
+    expect(msg).toContain('0.5 GRAM');
   });
 });
 
@@ -413,7 +414,7 @@ describe('Edge cases', () => {
     });
     const msg = await formatAction(action, resp(), baseConfig);
     expect(msg).toBeTruthy();
-    expect(msg).toContain('0 TON');
+    expect(msg).toContain('0 GRAM');
   });
 
   test('missing metadata gracefully handled', async () => {
@@ -456,5 +457,78 @@ describe('Edge cases', () => {
     const msg = await formatAction(action, resp(), failConfig);
     expect(msg).toBeTruthy();
     expect(msg).toContain('Item');
+  });
+});
+
+// ── Multiple Wallets ──────────────────────────────────────
+describe('Multiple wallets', () => {
+  test('outgoing from second wallet passes', async () => {
+    const action = makeAction('ton_transfer', {
+      source: WALLET2, destination: OTHER,
+      value: '2000000000', comment: null, encrypted: false,
+    });
+    const msg = await formatAction(action, resp(), baseConfig);
+    expect(msg).toContain('2 GRAM');
+  });
+
+  test('wallet match ignores address case', async () => {
+    const action = makeAction('jetton_transfer', {
+      sender: WALLET2.toLowerCase(), receiver: OTHER, asset: ASSET,
+      amount: '1000000', comment: null, is_encrypted_comment: false,
+    });
+    const msg = await formatAction(action, resp(), baseConfig);
+    expect(msg).toBeTruthy();
+  });
+
+  test('NFT bought by second wallet is a purchase', async () => {
+    const action = makeAction('nft_transfer', {
+      old_owner: OTHER, new_owner: WALLET2, nft_item: NFT,
+      is_purchase: true, price: '5000000000',
+      comment: null, is_encrypted_comment: false,
+    });
+    const msg = await formatAction(action, resp(), baseConfig);
+    expect(msg).toContain('Buy');
+  });
+
+  test('incoming to second wallet is skipped', async () => {
+    const action = makeAction('ton_transfer', {
+      source: OTHER, destination: WALLET2,
+      value: '1000000000', comment: null, encrypted: false,
+    });
+    expect(await formatAction(action, resp(), baseConfig)).toBeNull();
+  });
+});
+
+// ── Wallet Labels ─────────────────────────────────────────
+describe('Wallet labels', () => {
+  const labelConfig = {
+    ...baseConfig,
+    walletLabels: { [WALLET]: 'Durov Old Wallet', [WALLET2]: 'Durov Telegram Wallet' },
+    // Address book name must lose to own label
+    tonscanAddressbook: { 'UQBFUCSBDK710QYVnBocfezDNvO7xxmLrJdAnLE8wciMF3Kc': { name: 'Pavel Durov 1' } },
+  };
+  const book = {
+    ...mockBook,
+    [WALLET2]: { user_friendly: 'UQBFUCSBDK710QYVnBocfezDNvO7xxmLrJdAnLE8wciMF3Kc', domain: 'durov.ton' },
+  };
+
+  test('transfer old → Telegram Wallet uses own label', async () => {
+    const action = makeAction('ton_transfer', {
+      source: WALLET, destination: WALLET2,
+      value: '1000000000', comment: null, encrypted: false,
+    });
+    const msg = await formatAction(action, resp(mockMeta, book), labelConfig);
+    expect(msg).toContain('Durov Telegram Wallet');
+    expect(msg).not.toContain('Pavel Durov 1');
+    expect(msg).not.toContain('durov.ton');
+  });
+
+  test('transfer Telegram Wallet → old uses own label', async () => {
+    const action = makeAction('jetton_transfer', {
+      sender: WALLET2, receiver: WALLET, asset: ASSET,
+      amount: '1000000', comment: null, is_encrypted_comment: false,
+    });
+    const msg = await formatAction(action, resp(mockMeta, book), labelConfig);
+    expect(msg).toContain('Durov Old Wallet');
   });
 });

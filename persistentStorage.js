@@ -5,6 +5,7 @@ class PersistentStorage {
   constructor(filename) {
     this.filePath = path.join(__dirname, filename);
     this.data = this.load();
+    this.data.seededWallets = this.data.seededWallets || {};
   }
 
   load() {
@@ -42,6 +43,20 @@ class PersistentStorage {
 
   markTxProcessed(txId) {
     this.data.processedTxs[txId] = true;
+    this.save();
+  }
+
+  markTxsProcessed(txIds) {
+    for (const id of txIds) this.data.processedTxs[id] = true;
+    this.save();
+  }
+
+  isWalletSeeded(wallet) {
+    return !!this.data.seededWallets[wallet.toUpperCase()];
+  }
+
+  markWalletSeeded(wallet) {
+    this.data.seededWallets[wallet.toUpperCase()] = true;
     this.save();
   }
 }

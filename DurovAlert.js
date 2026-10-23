@@ -10,7 +10,14 @@ const { getTonscanAddressbook } = require('./utils');
 const bot     = new Telegraf(process.env.BOT_TOKEN);
 const storage = new PersistentStorage('transactions.json');
 
-const DUROV_WALLET = process.env.DUROV_WALLET;
+// Comma-separated raw addresses: old wallet, Telegram Wallet
+const DUROV_WALLETS = (process.env.DUROV_WALLET || '')
+  .split(',').map(s => s.trim()).filter(Boolean);
+// Fixed names for Durov's own wallets, shown instead of address-book names
+const WALLET_LABELS = {
+  '0:D8CD999FB2B1B384E6CA254C3883375E23111A8B78C015B886286C31BF11E29D': 'Durov Old Wallet',
+  '0:455024810CAEF5D106159C1A1C7DECC336F3BBC7198BAC97409CB13CC1C88C17': 'Durov Telegram Wallet',
+};
 const CHANNEL_ID   = process.env.CHANNEL_ID;
 const ADMIN_ID     = 336163;
 const API_KEY      = process.env.TONCENTER_API_KEY;
@@ -159,7 +166,8 @@ async function processAction(action, fullResponse) {
 
   try {
     const message = await formatAction(action, fullResponse, {
-      durovWallet: DUROV_WALLET,
+      durovWallets: DUROV_WALLETS,
+      walletLabels: WALLET_LABELS,
       tonscanAddressbook,
       getNftInfo,
     });
@@ -186,17 +194,46 @@ async function processAction(action, fullResponse) {
 }
 
 // ── Polling ───────────────────────────────────────────────
+async function fetchActions(wallet) {
+  await rateLimiter.throttle();
+  const { data } = await axios.get(API_URL, {
+    params: { account: wallet, limit: 20, sort: 'desc' },
+    headers: { 'X-API-Key': API_KEY },
+  });
+  return data;
+}
+
+// Mark a newly added wallet's history as processed so it is not posted
+async function seedWallet(wallet) {
+  try {
+    const data = await fetchActions(wallet);
+    const ids = (data?.actions || []).map(a => a.trace_id).filter(Boolean);
+    storage.markTxsProcessed(ids);
+    storage.markWalletSeeded(wallet);
+    console.log(`[${ts()}] Seeded ${wallet.substring(0, 10)}: ${ids.length} old action(s) skipped`);
+  } catch (e) {
+    console.error(`Seed error (${wallet.substring(0, 10)}): ${e.message}`);
+  }
+}
+
 async function pollTransactions() {
   if (pollingInFlight) return;
   pollingInFlight = true;
 
   try {
-    await rateLimiter.throttle();
+    for (const wallet of DUROV_WALLETS) {
+      // Unseeded wallet would flood the channel with its history
+      if (!storage.isWalletSeeded(wallet)) await seedWallet(wallet);
+      else await pollWallet(wallet);
+    }
+  } finally {
+    pollingInFlight = false;
+  }
+}
 
-    const { data } = await axios.get(API_URL, {
-      params: { account: DUROV_WALLET, limit: 20, sort: 'desc' },
-      headers: { 'X-API-Key': API_KEY },
-    });
+async function pollWallet(wallet) {
+  try {
+    const data = await fetchActions(wallet);
 
     if (!data?.actions?.length) return;
 
@@ -222,9 +259,7 @@ async function pollTransactions() {
       storage.setLastProcessedTime(maxTime);
     }
   } catch (error) {
-    console.error(`Poll error: ${error.message}`);
-  } finally {
-    pollingInFlight = false;
+    console.error(`Poll error (${wallet.substring(0, 10)}): ${error.message}`);
   }
 }
 
@@ -264,7 +299,7 @@ function connectStreaming() {
     ws.send(JSON.stringify({
       operation:             'subscribe',
       id:                    'durov-actions',
-      addresses:             [DUROV_WALLET],
+      addresses:             DUROV_WALLETS,
       types:                 ['actions'],
       min_finality:          'confirmed',
       include_address_book:  true,
