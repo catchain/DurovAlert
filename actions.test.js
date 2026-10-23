@@ -503,7 +503,7 @@ describe('Multiple wallets', () => {
 describe('Wallet labels', () => {
   const labelConfig = {
     ...baseConfig,
-    walletLabels: { [WALLET]: 'Durov Old Wallet', [WALLET2]: 'Durov Telegram Wallet' },
+    walletLabels: { [WALLET]: 'Old Durov Wallet', [WALLET2]: 'Durov Telegram Wallet' },
     // Address book name must lose to own label
     tonscanAddressbook: { 'UQBFUCSBDK710QYVnBocfezDNvO7xxmLrJdAnLE8wciMF3Kc': { name: 'Pavel Durov 1' } },
   };
@@ -529,6 +529,6 @@ describe('Wallet labels', () => {
       amount: '1000000', comment: null, is_encrypted_comment: false,
     });
     const msg = await formatAction(action, resp(mockMeta, book), labelConfig);
-    expect(msg).toContain('Durov Old Wallet');
+    expect(msg).toContain('Old Durov Wallet');
   });
 });

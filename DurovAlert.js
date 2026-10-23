@@ -15,7 +15,7 @@ const DUROV_WALLETS = (process.env.DUROV_WALLET || '')
   .split(',').map(s => s.trim()).filter(Boolean);
 // Fixed names for Durov's own wallets, shown instead of address-book names
 const WALLET_LABELS = {
-  '0:D8CD999FB2B1B384E6CA254C3883375E23111A8B78C015B886286C31BF11E29D': 'Durov Old Wallet',
+  '0:D8CD999FB2B1B384E6CA254C3883375E23111A8B78C015B886286C31BF11E29D': 'Old Durov Wallet',
   '0:455024810CAEF5D106159C1A1C7DECC336F3BBC7198BAC97409CB13CC1C88C17': 'Durov Telegram Wallet',
 };
 const CHANNEL_ID   = process.env.CHANNEL_ID;
