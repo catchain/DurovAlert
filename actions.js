@@ -17,13 +17,13 @@ const T = {
 
   ton_transfer: {
     sent:              '💸 <a href="{txLink}">Sent</a> <b>{amount} GRAM</b> to <a href="{address}">{recipient}</a>',
-    encrypted_comment: '📝 <b>Encrypted</b>',
+    encrypted_comment: '📝 <i>Encrypted Message</i>',
     comment:           '📝 {comment}',
   },
 
   jetton_transfer: {
     sent:              '💎 <a href="{txLink}">Sent</a> <b>{amount} {symbol}</b> to <a href="{address}">{recipient}</a>',
-    encrypted_comment: '📝 <b>Encrypted</b>',
+    encrypted_comment: '📝 <i>Encrypted Message</i>',
     comment:           '📝 {comment}',
   },
 
