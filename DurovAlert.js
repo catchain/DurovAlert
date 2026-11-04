@@ -157,12 +157,25 @@ async function sendMessage(text) {
   }
 }
 
+// ── Dedup Keys ────────────────────────────────────────────
+// One trace holds several actions (e.g. call_contract + nft_transfer),
+// so each action is deduped on its own key, not on trace_id
+function actionKey(action) {
+  return `a:${action.action_id || `${action.trace_id}:${action.type}`}`;
+}
+
+// Bare trace_id entries were written before per-action dedup
+function isProcessed(action) {
+  return storage.hasProcessedTx(actionKey(action))
+    || storage.hasProcessedTx(action.trace_id);
+}
+
 // ── Process One Action ────────────────────────────────────
 async function processAction(action, fullResponse) {
   const id = action.trace_id;
   // Claim immediately to close the WS/poll race window before format+send
-  if (!id || storage.hasProcessedTx(id)) return;
-  storage.markTxProcessed(id);
+  if (!id || isProcessed(action)) return;
+  storage.markTxProcessed(actionKey(action));
 
   try {
     const message = await formatAction(action, fullResponse, {
@@ -207,7 +220,7 @@ async function fetchActions(wallet) {
 async function seedWallet(wallet) {
   try {
     const data = await fetchActions(wallet);
-    const ids = (data?.actions || []).map(a => a.trace_id).filter(Boolean);
+    const ids = (data?.actions || []).filter(a => a.trace_id).map(actionKey);
     storage.markTxsProcessed(ids);
     storage.markWalletSeeded(wallet);
     console.log(`[${ts()}] Seeded ${wallet.substring(0, 10)}: ${ids.length} old action(s) skipped`);
@@ -239,7 +252,7 @@ async function pollWallet(wallet) {
 
     const lastTime = storage.getLastProcessedTime();
     const fresh = data.actions
-      .filter(a => a.start_utime > lastTime || !storage.hasProcessedTx(a.trace_id))
+      .filter(a => a.start_utime > lastTime || !isProcessed(a))
       .sort((a, b) => a.start_utime - b.start_utime);
 
     if (!fresh.length) return;

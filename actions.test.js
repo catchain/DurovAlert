@@ -532,3 +532,26 @@ describe('Wallet labels', () => {
     expect(msg).toContain('Old Durov Wallet');
   });
 });
+
+// ── Failed Actions ────────────────────────────────────────
+describe('Failed actions', () => {
+  test('failed nft_transfer is skipped', async () => {
+    const action = makeAction('nft_transfer', {
+      old_owner: WALLET, new_owner: OTHER, nft_item: NFT,
+      is_purchase: false, comment: null, is_encrypted_comment: false,
+    });
+    action.success = false;
+    const msg = await formatAction(action, resp(), baseConfig);
+    expect(msg).toBeNull();
+  });
+
+  test('successful nft_transfer still posts', async () => {
+    const action = makeAction('nft_transfer', {
+      old_owner: WALLET, new_owner: OTHER, nft_item: NFT,
+      is_purchase: false, comment: null, is_encrypted_comment: false,
+    });
+    action.success = true;
+    const msg = await formatAction(action, resp(), baseConfig);
+    expect(msg).toBeTruthy();
+  });
+});

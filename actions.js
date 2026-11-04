@@ -458,6 +458,8 @@ async function formatAction(tx, fullResponse, config) {
   try {
     const { type, details } = tx;
     if (IGNORED.has(type)) return null;
+    // Failed actions changed nothing on chain (e.g. NFT stayed with the owner)
+    if (tx.success === false) return null;
 
     const ctx = createContext(tx, fullResponse, config);
     const handler = handlers[type];
