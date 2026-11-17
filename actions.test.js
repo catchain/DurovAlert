@@ -555,3 +555,52 @@ describe('Failed actions', () => {
     expect(msg).toBeTruthy();
   });
 });
+
+// ── Telegram Gifts ────────────────────────────────────────
+describe('Telegram gift link', () => {
+  const { giftLink, linkPreviewOptions } = require('./actions');
+
+  test.each([
+    ['Chill Flame #93688', 'https://t.me/nft/ChillFlame-93688'],
+    ['Plush Pepe #1',      'https://t.me/nft/PlushPepe-1'],
+    ["Durov's Cap #777",   'https://t.me/nft/DurovsCap-777'],
+    ['B-Day Candle #42',   'https://t.me/nft/BDayCandle-42'],
+    ['Lollipop #9',        'https://t.me/nft/Lollipop-9'],
+    ['Jack-in-the-Box #5', 'https://t.me/nft/JackInTheBox-5'],
+    ['One Two Three #4',   'https://t.me/nft/OneTwoThree-4'],
+  ])('%s → %s', (name, url) => {
+    expect(giftLink(name)).toBe(url);
+  });
+
+  test.each([
+    'Test NFT #1 extra', 'durov.ton', 'Item', 'chill flame #5',
+    'Chill Flame', 'Chill Flame #', 'Chill Flame #12a', 'Chill  Flame #5',
+    'One Two Three Four Five #4', 'Jack in the Box #5', '#5', 'Chill Flame#5', '',
+  ])('%s is not a gift', (name) => {
+    expect(giftLink(name)).toBeNull();
+  });
+
+  test('gift transfer gets a hidden link and a preview', async () => {
+    const action = makeAction('nft_transfer', {
+      old_owner: WALLET, new_owner: OTHER, nft_item: NFT,
+      is_purchase: false, comment: null, is_encrypted_comment: false,
+    });
+    const cfg = { ...baseConfig, getNftInfo: async () => ({ name: 'Chill Flame #93688' }) };
+    const msg = await formatAction(action, resp(), cfg);
+    expect(msg.startsWith('<a href="https://t.me/nft/ChillFlame-93688">&#8203;</a>🖼')).toBe(true);
+    expect(linkPreviewOptions(msg)).toEqual({
+      url: 'https://t.me/nft/ChillFlame-93688', is_disabled: false, show_above_text: false,
+    });
+  });
+
+  test('non-gift NFT keeps the preview off', async () => {
+    const action = makeAction('nft_transfer', {
+      old_owner: WALLET, new_owner: OTHER, nft_item: NFT,
+      is_purchase: false, comment: null, is_encrypted_comment: false,
+    });
+    const cfg = { ...baseConfig, getNftInfo: async () => ({ name: 'durov.ton' }) };
+    const msg = await formatAction(action, resp(), cfg);
+    expect(msg.startsWith('🖼')).toBe(true);
+    expect(linkPreviewOptions(msg)).toEqual({ is_disabled: true });
+  });
+});

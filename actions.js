@@ -118,6 +118,33 @@ function extractDomain(metadata, asset) {
   return 'Item';
 }
 
+// Telegram gift NFT: 1–4 capitalized words + "#number", e.g. "Chill Flame #93688"
+// → https://t.me/nft/ChillFlame-93688 ("Jack-in-the-Box #5" → JackInTheBox-5)
+const GIFT_WORD = "[A-Z][A-Za-z0-9'’-]*";
+const GIFT_NAME_RE = new RegExp(`^(${GIFT_WORD}(?: ${GIFT_WORD}){0,3}) #(\\d+)$`);
+
+function giftLink(nftName) {
+  const m = GIFT_NAME_RE.exec((nftName || '').trim());
+  if (!m) return null;
+  // Drop spaces and punctuation; a letter after a hyphen becomes uppercase
+  const slug = m[1]
+    .replace(/-([a-z])/g, (_, c) => c.toUpperCase())
+    .replace(/[^A-Za-z0-9]/g, '');
+  return `https://t.me/nft/${slug}-${m[2]}`;
+}
+
+// Invisible link at the start of the message: Telegram builds the preview from it
+const HIDDEN_LINK_RE = /^<a href="(https:\/\/t\.me\/nft\/[A-Za-z0-9]+-\d+)">&#8203;<\/a>/;
+const hiddenLink = (url) => `<a href="${url}">&#8203;</a>`;
+
+// Telegram send options: preview is on only for messages with a hidden gift link
+function linkPreviewOptions(text) {
+  const m = HIDDEN_LINK_RE.exec(text || '');
+  return m
+    ? { url: m[1], is_disabled: false, show_above_text: false }
+    : { is_disabled: true };
+}
+
 function appendComment(message, comment, isEncrypted, tpl) {
   if (comment === null || comment === undefined) return message;
   if (isEncrypted) return message + '\n\n' + tpl.encrypted_comment;
@@ -281,6 +308,8 @@ const handlers = {
     }
 
     let msg = formatTemplate(template, data);
+    const gift = giftLink(nftName);
+    if (gift) msg = hiddenLink(gift) + msg;
     return appendComment(msg, d.comment, d.is_encrypted_comment, T.jetton_transfer);
   },
 
@@ -475,4 +504,4 @@ async function formatAction(tx, fullResponse, config) {
   }
 }
 
-module.exports = { formatAction, TEMPLATES: T, UNKNOWN };
+module.exports = { formatAction, TEMPLATES: T, UNKNOWN, giftLink, linkPreviewOptions };

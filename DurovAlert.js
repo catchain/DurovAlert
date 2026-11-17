@@ -3,7 +3,7 @@ const { Telegraf }       = require('telegraf');
 const WebSocket          = require('ws');
 const axios              = require('axios');
 const PersistentStorage  = require('./persistentStorage');
-const { formatAction }   = require('./actions');
+const { formatAction, linkPreviewOptions } = require('./actions');
 const { getTonscanAddressbook } = require('./utils');
 
 // ── Config ────────────────────────────────────────────────
@@ -137,20 +137,15 @@ async function enrichResponse(actions, fullResponse) {
 
 // ── Telegram Sender ───────────────────────────────────────
 async function sendMessage(text) {
+  const extra = { parse_mode: 'HTML', link_preview_options: linkPreviewOptions(text) };
   try {
-    await bot.telegram.sendMessage(CHANNEL_ID, text, {
-      parse_mode: 'HTML',
-      disable_web_page_preview: true,
-    });
+    await bot.telegram.sendMessage(CHANNEL_ID, text, extra);
   } catch (error) {
     if (error.message.includes('429')) {
       const sec = parseInt(error.message.match(/retry after (\d+)/)?.[1] || '35', 10);
       console.log(`Telegram rate-limit, waiting ${sec}s`);
       await new Promise(r => setTimeout(r, sec * 1000));
-      await bot.telegram.sendMessage(CHANNEL_ID, text, {
-        parse_mode: 'HTML',
-        disable_web_page_preview: true,
-      });
+      await bot.telegram.sendMessage(CHANNEL_ID, text, extra);
     } else {
       console.error(`Telegram send error: ${error.message}`);
     }

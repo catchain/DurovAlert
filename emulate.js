@@ -8,7 +8,7 @@
 require('dotenv').config();
 const { Telegraf }     = require('telegraf');
 const axios            = require('axios');
-const { formatAction } = require('./actions');
+const { formatAction, linkPreviewOptions } = require('./actions');
 const { getTonscanAddressbook } = require('./utils');
 
 const bot        = new Telegraf(process.env.BOT_TOKEN);
@@ -20,7 +20,7 @@ async function send(label, msg) {
   try {
     await bot.telegram.sendMessage(CHANNEL_ID, msg, {
       parse_mode: 'HTML',
-      disable_web_page_preview: true,
+      link_preview_options: linkPreviewOptions(msg),
     });
     console.log(`✓ ${label}`);
   } catch (e) {
