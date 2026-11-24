@@ -118,6 +118,24 @@ function extractDomain(metadata, asset) {
   return 'Item';
 }
 
+// DNS / username NFTs have no name in metadata, only extra.domain
+async function resolveNftName(ctx, nft, apiFirst = false) {
+  const fromMeta = () => {
+    for (const ti of ctx.metadata?.[nft]?.token_info || []) {
+      if (ti?.name) return ti.name;
+      if (ti?.extra?.domain) return ti.extra.domain;
+    }
+    return null;
+  };
+  const fromApi = async () => {
+    try { return (await ctx.getNftInfo(nft))?.name || null; } catch { return null; }
+  };
+  const name = apiFirst
+    ? (await fromApi()) || fromMeta()
+    : fromMeta() || (await fromApi());
+  return name || 'Item';
+}
+
 // Telegram gift NFT: 1–4 capitalized words + "#number", e.g. "Chill Flame #93688"
 // → https://t.me/nft/ChillFlame-93688 ("Jack-in-the-Box #5" → JackInTheBox-5)
 const GIFT_WORD = "[A-Z][A-Za-z0-9'’-]*";
@@ -285,11 +303,7 @@ const handlers = {
   async nft_transfer(d, ctx) {
     if (!ctx.isOwn(d.old_owner) && !d.is_purchase) return null;
 
-    let nftName = 'Item';
-    try {
-      const info = await ctx.getNftInfo(d.nft_item);
-      nftName = info.name || 'Item';
-    } catch {}
+    const nftName = await resolveNftName(ctx, d.nft_item, true);
 
     const data = {
       txLink:    ctx.txLink,
@@ -315,16 +329,7 @@ const handlers = {
 
   // ── NFT Mint ────────────────────────────────────────
   async nft_mint(d, ctx) {
-    let nftName = 'Item';
-    const ti = ctx.metadata[d.nft_item]?.token_info;
-    if (ti?.[0]?.name) {
-      nftName = ti[0].name;
-    } else {
-      try {
-        const info = await ctx.getNftInfo(d.nft_item);
-        nftName = info.name || 'Item';
-      } catch {}
-    }
+    const nftName = await resolveNftName(ctx, d.nft_item);
 
     return formatTemplate(T.nft_mint.mint, {
       txLink:  ctx.txLink,
@@ -337,16 +342,7 @@ const handlers = {
   async auction_bid(d, ctx) {
     if (!ctx.isOwn(d.bidder)) return null;
 
-    let nftName = 'Item';
-    const ti = ctx.metadata[d.nft_item]?.token_info;
-    if (ti?.[0]?.name) {
-      nftName = ti[0].name;
-    } else {
-      try {
-        const info = await ctx.getNftInfo(d.nft_item);
-        if (info.name) nftName = info.name;
-      } catch {}
-    }
+    const nftName = await resolveNftName(ctx, d.nft_item);
 
     return formatTemplate(T.auction_bid.bid, {
       txLink:  ctx.txLink,

@@ -456,7 +456,21 @@ describe('Edge cases', () => {
     });
     const msg = await formatAction(action, resp(), failConfig);
     expect(msg).toBeTruthy();
-    expect(msg).toContain('Item');
+    // Falls back to the name from metadata
+    expect(msg).toContain('Durov #42');
+  });
+
+  test('DNS NFT without a name shows its domain', async () => {
+    const cfg = { ...baseConfig, getNftInfo: async () => ({ name: null }) };
+    const meta = { [NFT]: { is_indexed: true, token_info: [{ type: 'nft_items', extra: { domain: 'tonnel.ton' } }] } };
+    for (const [type, extra] of [
+      ['nft_transfer', { old_owner: WALLET, new_owner: OTHER, is_purchase: false, comment: null, is_encrypted_comment: false }],
+      ['nft_mint',     { owner: WALLET }],
+      ['auction_bid',  { bidder: WALLET, amount: '1000000000' }],
+    ]) {
+      const msg = await formatAction(makeAction(type, { nft_item: NFT, ...extra }), resp({ ...mockMeta, ...meta }), cfg);
+      expect(msg).toContain('tonnel.ton');
+    }
   });
 });
 

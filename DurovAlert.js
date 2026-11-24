@@ -59,11 +59,14 @@ async function getNftInfo(nftAddress) {
     });
     const meta = data?.metadata || {};
     // API may key metadata by raw or user-friendly form
-    const entry = meta[nftAddress]
-      || Object.values(meta).find(m => m?.token_info?.[0]);
-    if (entry?.token_info?.[0]) {
-      const ti = entry.token_info[0];
-      const result = { name: ti.name || 'Item', image: ti.image || null };
+    // The response also holds the collection's entry, so pick the item's own one
+    const isItem = m => m?.token_info?.some(t => t?.type === 'nft_items');
+    const entry = meta[nftAddress] || Object.values(meta).find(isItem);
+    const ti = entry?.token_info?.find(t => t?.type === 'nft_items') || entry?.token_info?.[0];
+    // DNS / username NFTs have no name, only a domain
+    const name = ti?.name || ti?.extra?.domain || data?.nft_items?.[0]?.content?.domain || null;
+    if (name) {
+      const result = { name, image: ti?.image || null };
       nftCache[nftAddress] = result;
       return result;
     }
