@@ -618,3 +618,63 @@ describe('Telegram gift link', () => {
     expect(linkPreviewOptions(msg)).toEqual({ is_disabled: true });
   });
 });
+
+// ── Unresolved NFT Name ───────────────────────────────────
+describe('unresolved NFT name', () => {
+  const transfer = () => makeAction('nft_transfer', {
+    old_owner: WALLET, new_owner: OTHER, nft_item: NFT,
+    is_purchase: false, comment: null, is_encrypted_comment: false,
+  });
+
+  test('API without a name falls back to metadata', async () => {
+    const unresolvedNfts = [];
+    const cfg = { ...baseConfig, unresolvedNfts, getNftInfo: async () => ({ name: null }) };
+    const msg = await formatAction(transfer(), resp(), cfg);
+    expect(msg).toContain('Durov #42');
+    expect(unresolvedNfts).toEqual([]);
+  });
+
+  test('no name anywhere reports the NFT for a later edit', async () => {
+    const unresolvedNfts = [];
+    const cfg = { ...baseConfig, unresolvedNfts, getNftInfo: async () => ({ name: null }) };
+    const msg = await formatAction(transfer(), resp({ [NFT]: { is_indexed: false } }), cfg);
+    expect(msg).toContain('<b>Item</b>');
+    expect(unresolvedNfts).toEqual([NFT]);
+  });
+
+  test('works without the unresolvedNfts list', async () => {
+    const cfg = { ...baseConfig, getNftInfo: async () => ({ name: null }) };
+    const msg = await formatAction(transfer(), resp({}), cfg);
+    expect(msg).toContain('<b>Item</b>');
+  });
+});
+
+describe('fetchNftNameFromUri', () => {
+  const { fetchNftNameFromUri } = require('./utils');
+  const http = (data) => ({ calls: [], get(url) { this.calls.push(url); return Promise.resolve({ data }); } });
+
+  test('reads the name from the content JSON', async () => {
+    const h = http({ name: ' Hoarse Horse #7166 ' });
+    expect(await fetchNftNameFromUri('https://nft.fragment.com/gift/hoarsehorse-7166.json', h))
+      .toBe('Hoarse Horse #7166');
+  });
+
+  test('maps ipfs:// to a gateway', async () => {
+    const h = http({ name: 'X' });
+    await fetchNftNameFromUri('ipfs://bafy/1.json', h);
+    expect(h.calls[0]).toBe('https://ipfs.io/ipfs/bafy/1.json');
+  });
+
+  test.each([
+    'http://example.com/a.json', 'https://127.0.0.1/a.json', 'https://[::1]/a.json',
+    'https://localhost/a.json', 'not a url', '', null,
+  ])('rejects %p without a request', async (uri) => {
+    const h = http({ name: 'X' });
+    expect(await fetchNftNameFromUri(uri, h)).toBeNull();
+    expect(h.calls).toEqual([]);
+  });
+
+  test('returns null when the JSON has no name', async () => {
+    expect(await fetchNftNameFromUri('https://example.com/a.json', http({}))).toBeNull();
+  });
+});

@@ -4,7 +4,7 @@ const WebSocket          = require('ws');
 const axios              = require('axios');
 const PersistentStorage  = require('./persistentStorage');
 const { formatAction, linkPreviewOptions } = require('./actions');
-const { getTonscanAddressbook } = require('./utils');
+const { getTonscanAddressbook, fetchNftNameFromUri } = require('./utils');
 
 // ── Config ────────────────────────────────────────────────
 const bot     = new Telegraf(process.env.BOT_TOKEN);
@@ -51,6 +51,9 @@ const nftCache = {};
 
 async function getNftInfo(nftAddress) {
   if (nftCache[nftAddress]) return nftCache[nftAddress];
+  let name = null;
+  let image = null;
+  let uri = null;
   try {
     await rateLimiter.throttle();
     const { data } = await axios.get('https://toncenter.com/api/v3/nft/items', {
@@ -63,17 +66,25 @@ async function getNftInfo(nftAddress) {
     const isItem = m => m?.token_info?.some(t => t?.type === 'nft_items');
     const entry = meta[nftAddress] || Object.values(meta).find(isItem);
     const ti = entry?.token_info?.find(t => t?.type === 'nft_items') || entry?.token_info?.[0];
+    const content = data?.nft_items?.[0]?.content;
     // DNS / username NFTs have no name, only a domain
-    const name = ti?.name || ti?.extra?.domain || data?.nft_items?.[0]?.content?.domain || null;
-    if (name) {
-      const result = { name, image: ti?.image || null };
-      nftCache[nftAddress] = result;
-      return result;
-    }
+    name = ti?.name || ti?.extra?.domain || content?.domain || null;
+    image = ti?.image || null;
+    uri = content?.uri || null;
   } catch (e) {
     console.error(`NFT info error: ${e.message}`);
   }
-  return { name: 'Item', image: null };
+
+  // Indexer has no metadata yet: read the name from the content JSON
+  if (!name && uri) {
+    try { name = await fetchNftNameFromUri(uri); }
+    catch (e) { console.error(`NFT content error: ${e.message}`); }
+  }
+
+  if (!name) return { name: null, image: null };
+  const result = { name, image };
+  nftCache[nftAddress] = result;
+  return result;
 }
 
 // Collect addresses from action details that need metadata / address book
@@ -142,17 +153,69 @@ async function enrichResponse(actions, fullResponse) {
 async function sendMessage(text) {
   const extra = { parse_mode: 'HTML', link_preview_options: linkPreviewOptions(text) };
   try {
-    await bot.telegram.sendMessage(CHANNEL_ID, text, extra);
+    return await bot.telegram.sendMessage(CHANNEL_ID, text, extra);
   } catch (error) {
     if (error.message.includes('429')) {
       const sec = parseInt(error.message.match(/retry after (\d+)/)?.[1] || '35', 10);
       console.log(`Telegram rate-limit, waiting ${sec}s`);
       await new Promise(r => setTimeout(r, sec * 1000));
-      await bot.telegram.sendMessage(CHANNEL_ID, text, extra);
-    } else {
-      console.error(`Telegram send error: ${error.message}`);
+      return await bot.telegram.sendMessage(CHANNEL_ID, text, extra);
     }
+    console.error(`Telegram send error: ${error.message}`);
+    return null;
   }
+}
+
+// ── Late NFT Name Fix ─────────────────────────────────────
+// An alert goes out at once, even when the NFT name is unknown ("Item").
+// The bot then asks for the name again and edits the message.
+const NAME_FIX_DELAYS = [3, 10, 30, 90, 300, 900, 3600].map(s => s * 1000);
+
+function formatConfig(extra = {}) {
+  return {
+    durovWallets: DUROV_WALLETS,
+    walletLabels: WALLET_LABELS,
+    tonscanAddressbook,
+    getNftInfo,
+    ...extra,
+  };
+}
+
+function scheduleNameFix(job, attempt = 0) {
+  const tag = job.action.trace_id.substring(0, 10);
+  if (attempt >= NAME_FIX_DELAYS.length) {
+    console.log(`NFT name still unknown, gave up [${tag}]`);
+    return;
+  }
+  setTimeout(async () => {
+    let done = false;
+    try { done = await fixNftName(job); }
+    catch (e) { console.error(`NFT name fix error [${tag}]: ${e.message}`); }
+    if (!done) scheduleNameFix(job, attempt + 1);
+  }, NAME_FIX_DELAYS[attempt]);
+}
+
+// Returns true when every NFT name in the message is resolved
+async function fixNftName(job) {
+  const extra = await fetchMetadataAndBook(job.nfts);
+  const fullResponse = {
+    metadata:     { ...job.fullResponse.metadata,     ...extra.metadata },
+    address_book: { ...job.fullResponse.address_book, ...extra.address_book },
+  };
+
+  const unresolvedNfts = [];
+  const text = await formatAction(job.action, fullResponse, formatConfig({ unresolvedNfts }));
+  if (typeof text !== 'string') return true;
+
+  if (text !== job.text) {
+    await bot.telegram.editMessageText(CHANNEL_ID, job.messageId, undefined, text, {
+      parse_mode: 'HTML',
+      link_preview_options: linkPreviewOptions(text),
+    });
+    job.text = text;
+    console.log(`NFT name fixed [${job.action.trace_id.substring(0, 10)}]`);
+  }
+  return unresolvedNfts.length === 0;
 }
 
 // ── Dedup Keys ────────────────────────────────────────────
@@ -176,12 +239,8 @@ async function processAction(action, fullResponse) {
   storage.markTxProcessed(actionKey(action));
 
   try {
-    const message = await formatAction(action, fullResponse, {
-      durovWallets: DUROV_WALLETS,
-      walletLabels: WALLET_LABELS,
-      tonscanAddressbook,
-      getNftInfo,
-    });
+    const unresolvedNfts = [];
+    const message = await formatAction(action, fullResponse, formatConfig({ unresolvedNfts }));
 
     if (message && message.__unknown) {
       console.log(`Unknown action type: ${message.type} [${id.substring(0, 10)}]`);
@@ -196,7 +255,13 @@ async function processAction(action, fullResponse) {
       }
     } else if (message) {
       console.log(`Sending: ${action.type} [${id.substring(0, 10)}]`);
-      await sendMessage(message);
+      const sent = await sendMessage(message);
+      if (sent?.message_id && unresolvedNfts.length) {
+        scheduleNameFix({
+          action, fullResponse, text: message,
+          messageId: sent.message_id, nfts: [...new Set(unresolvedNfts)],
+        });
+      }
       await new Promise(r => setTimeout(r, 1000));
     }
   } catch (error) {

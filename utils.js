@@ -1,4 +1,5 @@
 const axios = require('axios');
+const net = require('net');
 
 function escapeMarkdown(text) {
     return text ? String(text) : '';
@@ -50,7 +51,29 @@ async function getTonscanAddressbook() {
     return data;
 }
 
+// Reads the NFT name from its off-chain content JSON (TEP-64).
+// The indexer fills metadata with a delay, the content URI is there at once.
+// The URI comes from the chain, so only public https hosts are allowed.
+async function fetchNftNameFromUri(uri, http = axios) {
+    if (typeof uri !== 'string' || !uri) return null;
+    const href = uri.startsWith('ipfs://') ? `https://ipfs.io/ipfs/${uri.slice(7)}` : uri;
+    let url;
+    try { url = new URL(href); } catch { return null; }
+    const host = url.hostname.replace(/^\[|\]$/g, '');
+    if (url.protocol !== 'https:' || net.isIP(host) || host === 'localhost') return null;
+
+    const { data } = await http.get(url.href, {
+        timeout: 4000,
+        maxRedirects: 0,
+        maxContentLength: 512 * 1024,
+        responseType: 'json',
+    });
+    const name = typeof data?.name === 'string' ? data.name.trim() : '';
+    return name ? name.slice(0, 100) : null;
+}
+
 module.exports = {
+    fetchNftNameFromUri,
     escapeMarkdown,
     formatTemplate,
     shortenAddress,

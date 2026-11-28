@@ -133,7 +133,10 @@ async function resolveNftName(ctx, nft, apiFirst = false) {
   const name = apiFirst
     ? (await fromApi()) || fromMeta()
     : fromMeta() || (await fromApi());
-  return name || 'Item';
+  if (name) return name;
+  // The caller sends the alert at once and fixes the name by a later edit
+  ctx.unresolvedNfts?.push(nft);
+  return 'Item';
 }
 
 // Telegram gift NFT: 1–4 capitalized words + "#number", e.g. "Chill Flame #93688"
@@ -172,7 +175,7 @@ function appendComment(message, comment, isEncrypted, tpl) {
 function createContext(tx, fullResponse, config) {
   const metadata    = fullResponse.metadata || {};
   const addressBook = fullResponse.address_book || {};
-  const { tonscanAddressbook, getNftInfo, durovWallets, walletLabels = {} } = config;
+  const { tonscanAddressbook, getNftInfo, durovWallets, walletLabels = {}, unresolvedNfts } = config;
   const own = new Set(durovWallets.map(w => w.toUpperCase()));
   const labels = Object.fromEntries(
     Object.entries(walletLabels).map(([addr, name]) => [addr.toUpperCase(), name]),
@@ -197,6 +200,7 @@ function createContext(tx, fullResponse, config) {
     metadata,
     addressBook,
     getNftInfo,
+    unresolvedNfts,
     friendly,
     formatAddr,
     addrLink: (addr) => `https://tonscan.org/address/${encodeURIComponent(friendly(addr))}`,
